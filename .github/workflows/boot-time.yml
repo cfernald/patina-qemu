@@ -1,0 +1,80 @@
+# A workflow for comparing plain QEMU boot times on pushes or manual runs.
+#
+##
+# Copyright (c) Microsoft Corporation.
+#
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+name: Boot Time
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  vars:
+    name: Get Repository Constants
+    uses: OpenDevicePartnership/patina-devops/.github/workflows/qemu-constants.yml@main
+
+  boot:
+    name: Boot ${{ matrix.platform }} ${{ matrix.os == 'windows-latest' && 'Windows' || 'Linux' }}
+    needs: vars
+    runs-on: ${{ matrix.os }}
+    container:
+      image: ${{ matrix.container || null }}
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Q35
+            config: Platforms/QemuQ35Pkg/PlatformBuild.py
+            os: windows-latest
+          - platform: ArmVirt
+            config: Platforms/QemuArmVirtPkg/PlatformBuild.py
+            os: windows-latest
+          - platform: Q35
+            config: Platforms/QemuQ35Pkg/PlatformBuild.py
+            os: ubuntu-latest
+            container: ${{ needs.vars.outputs.container-image }}
+          - platform: ArmVirt
+            config: Platforms/QemuArmVirtPkg/PlatformBuild.py
+            os: ubuntu-latest
+            container: ${{ needs.vars.outputs.container-image }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Configure Git
+        if: ${{ matrix.container != null }}
+        uses: ./.github/actions/configure-git
+
+      - name: Setup Python ${{ needs.vars.outputs.python-version }}
+        if: ${{ matrix.container == null }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ needs.vars.outputs.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'pip-requirements.txt'
+
+      - name: Install dependencies
+        run: pip install -r pip-requirements.txt
+
+      - name: Build and boot
+        id: boot
+        uses: ./.github/actions/build-platform
+        with:
+          command: 'all'
+          platform-config: ${{ matrix.config }}
+          platform-name: ${{ matrix.platform }}
+          target: 'DEBUG'
+          stuart-args: 'SHUTDOWN_AFTER_RUN=TRUE QEMU_HEADLESS=TRUE'
+
+      - name: Publish Logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: boot-logs-${{ matrix.platform }}-${{ matrix.os == 'windows-latest' && 'Windows' || 'Linux' }}
+          path: ${{ steps.boot.outputs.log-path }}
