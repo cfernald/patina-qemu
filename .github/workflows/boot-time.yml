@@ -62,19 +62,68 @@ jobs:
       - name: Install dependencies
         run: pip install -r pip-requirements.txt
 
-      - name: Build and boot
-        id: boot
+      - name: Build firmware
+        id: build-platform
         uses: ./.github/actions/build-platform
         with:
-          command: 'all'
+          command: 'build'
           platform-config: ${{ matrix.config }}
           platform-name: ${{ matrix.platform }}
           target: 'DEBUG'
           stuart-args: 'SHUTDOWN_AFTER_RUN=TRUE QEMU_HEADLESS=TRUE'
+
+      - name: Checkout latest Patina DXE Core
+        uses: actions/checkout@v7
+        with:
+          repository: OpenDevicePartnership/patina-dxe-core-qemu
+          ref: main
+          path: patina-dxe-core-qemu
+
+      - name: Checkout firmware patcher
+        uses: actions/checkout@v7
+        with:
+          repository: OpenDevicePartnership/patina-fw-patcher
+          ref: main
+          path: patina-fw-patcher
+
+      - name: Read DXE Core Rust configuration
+        id: rust-config
+        shell: bash
+        run: |
+          python -c "
+          import pathlib, tomllib
+          config = tomllib.loads(pathlib.Path('patina-dxe-core-qemu/rust-toolchain.toml').read_text())
+          print('toolchain=' + config['toolchain']['channel'])
+          print('targets=' + ','.join(config['toolchain']['targets']))
+          print('components=' + ','.join(config['toolchain']['components']))
+          print('cargo-make=' + config['tools']['cargo-make'])
+          " >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust-config.outputs.toolchain }}
+          targets: ${{ steps.rust-config.outputs.targets }}
+          components: ${{ steps.rust-config.outputs.components }}
+
+      - name: Install cargo-make
+        shell: bash
+        run: |
+          cargo install cargo-make --locked --version "${{ steps.rust-config.outputs.cargo-make }}"
+
+      - name: Build and boot latest Patina DXE Core
+        shell: bash
+        run: |
+          python build_and_run_rust_binary.py \
+            --platform "${{ matrix.platform }}" \
+            --patina-dxe-core-repo "${{ github.workspace }}/patina-dxe-core-qemu" \
+            --fw-patch-repo "${{ github.workspace }}/patina-fw-patcher" \
+            --shutdown-after-run --headless \
+            2>&1 | tee "${{ steps.build-platform.outputs.log-path }}/boot.txt"
 
       - name: Publish Logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: boot-logs-${{ matrix.platform }}-${{ matrix.os == 'windows-latest' && 'Windows' || 'Linux' }}
-          path: ${{ steps.boot.outputs.log-path }}
+          path: ${{ steps.build-platform.outputs.log-path }}

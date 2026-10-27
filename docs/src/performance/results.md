@@ -6,6 +6,17 @@ For more information on the functionality of the performance component, see the
 [performance component documentation](https://github.com/OpenDevicePartnership/patina/blob/main/components/patina_performance/README.md)
 in the main `patina` repo. This document focuses on how to collect and interpret performance results.
 
+## Boot Runtime Comparison
+
+The [Boot Time workflow](../../../.github/workflows/boot-time.yml) runs on pushes and can also be started manually.
+It builds DEBUG firmware for Q35 and ArmVirt on Windows and Linux, then uses `build_and_run_rust_binary.py` to
+build the latest `main` from `patina-dxe-core-qemu`, patch it into the firmware, and boot with
+`--shutdown-after-run --headless`. The firmware patcher is also checked out from `main`.
+
+Compare the script's `QEMU Run Time` output, which excludes compilation and patching but includes QEMU startup,
+boot to the UEFI shell, and shutdown. The output is saved as `boot.txt` in each platform/host OS's `boot-logs`
+artifact. Since the DXE core tracks upstream `main`, runs at different times can use different DXE core commits.
+
 ## Collecting Performance
 
 ### 1. Enable the Performance Component
